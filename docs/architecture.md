@@ -27,7 +27,7 @@
 - OmniRoute's current supported engines include Node 24.x (>=24.0.0 <27).
 - Throwaway proof-of-concept only: digidem/nodejs-mobile v24.20.0-0, Android archive SHA-256 f5ffbaf4f2679fa9180b0758c637c2f8fc8828300f95129badf213a028fb37bb. It is older than the production security baseline and must never ship.
 - Production requires a reviewed Android/mobile patch stack rebased to Node v24.22.3, with patch hashes and native regression evidence. If that build cannot be produced, the release is blocked; do not silently ship the older POC runtime or downgrade to Node 18.
-- digidem/nodejs-mobile and fogtape/nodejs-mobile are research/build references, not claims of official Node.js Android support.
+- fogtape/nodejs-mobile is an external mobile build recipe, not an official Node.js Android support guarantee. Audit its patches and licenses before adopting the artifact.
 
 ## OmniRoute packaging policy
 
