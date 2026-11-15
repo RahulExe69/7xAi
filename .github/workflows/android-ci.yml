@@ -42,7 +42,7 @@ jobs:
         run: |
           yes | sdkmanager --licenses
           # Android 17 / API 37 is currently a preview SDK; request the beta channel explicitly.
-          sdkmanager --channel=3 "platform-tools" "platforms;android-37" "build-tools;36.0.0"
+          sdkmanager --channel=1 "platform-tools" "platforms;android-37" "build-tools;36.0.0"
 
       - name: Set up Gradle 9.9.1
         uses: gradle/actions/setup-gradle@v4
