@@ -9,12 +9,12 @@
 
 ## Throwaway Android feasibility artifact
 
-- Project: https://github.com/digidem/nodejs-mobile
-- Tag: v24.20.0-0
-- Asset: nodejs-mobile-android-24.20.0-0.zip
-- SHA-256: f5ffbaf4f2679fa9180b0758c637c2f8fc8828300f95129badf213a028fb37bb
+- Project: https://github.com/fogtape/nodejs-mobile
+- Tag: v24.22.1-0
+- Asset: nodejs-mobile-android-24.22.1-0.zip
+- SHA-256: d6fd9f610fe5d81fede8f0d400c5a62723247725a19831835f15abf4f0604250
 - Class: poc-only
-- Rule: do not place this artifact in a production or alpha APK. It is older than the production security baseline.
+- Rule: do not place this artifact in a production or alpha APK. It is older than the production security baseline; use the full archive because the lite build removes node:sqlite.
 
 ## Production promotion requirements
 
