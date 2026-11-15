@@ -31,6 +31,13 @@ jobs:
         with:
           node-version: "24.x"
 
+      - name: Configure Android SDK and NDK
+        run: |
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          echo "/usr/local/lib/android/sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          yes | sdkmanager --licenses
+          sdkmanager "ndk;27.3.13750724"
+
       - name: Validate provenance and fetch pinned POC library
         run: |
           node --test tests/runtime-manifest.test.mjs
@@ -38,16 +45,21 @@ jobs:
           bash -n scripts/fetch-libnode.sh
           bash scripts/fetch-libnode.sh
 
-      - name: Inspect ELF architecture, dependencies and page alignment
+      - name: Inspect ELF architecture, dependencies, page alignment and stripped size
         shell: bash
         run: |
           set -euo pipefail
           LIB="runtime/poc/arm64-v8a/libnode.so"
+          STRIPPED="runtime/poc/arm64-v8a/libnode.stripped.so"
+          STRIP_TOOL="$ANDROID_HOME/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          test -x "$STRIP_TOOL"
+
           file "$LIB"
           readelf -h "$LIB" | tee runtime-poc-elf-header.txt
           grep -Fq "AArch64" runtime-poc-elf-header.txt
           readelf -dW "$LIB" | tee runtime-poc-dynamic-dependencies.txt
           readelf -lW "$LIB" | tee runtime-poc-program-headers.txt
+
           python3 - <<'PY'
           import re
           from pathlib import Path
@@ -67,16 +79,31 @@ jobs:
           if smallest < 16384:
               raise SystemExit("ELF does not meet the 16 KB page-alignment floor")
           PY
-          sha256sum "$LIB" | tee runtime-poc-library.sha256
-          du -h "$LIB" | tee runtime-poc-library-size.txt
+
+          cp "$LIB" "$STRIPPED"
+          "$STRIP_TOOL" --strip-debug "$STRIPPED"
+          readelf --dyn-syms --wide "$LIB" | awk '/GLOBAL/ {print $8}' | sort -u > /tmp/node-symbols-before.txt
+          readelf --dyn-syms --wide "$STRIPPED" | awk '/GLOBAL/ {print $8}' | sort -u > /tmp/node-symbols-after.txt
+          diff -u /tmp/node-symbols-before.txt /tmp/node-symbols-after.txt
+
+          UNSTRIPPED_BYTES="$(stat -c %s "$LIB")"
+          STRIPPED_BYTES="$(stat -c %s "$STRIPPED")"
+          UNSTRIPPED_SHA="$(sha256sum "$LIB" | cut -d' ' -f1)"
+          STRIPPED_SHA="$(sha256sum "$STRIPPED" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$UNSTRIPPED_SHA" "$LIB" | tee runtime-poc-library.sha256
+          printf '%s  %s\n' "$STRIPPED_SHA" "$STRIPPED" | tee runtime-poc-library-stripped.sha256
+          printf 'Unstripped bytes: %s\nStripped bytes: %s\n' "$UNSTRIPPED_BYTES" "$STRIPPED_BYTES" | tee runtime-poc-library-sizes.txt
+
           {
             echo "## Android Node runtime POC inspection"
             echo
             echo "- Classification: POC only; not eligible for release"
             echo "- Node: $(node -p "require('./runtime/node-runtime.json').nodeVersion")"
             echo "- ABI: arm64-v8a"
-            echo "- Library size: $(du -h "$LIB" | cut -f1)"
-            echo "- Library SHA-256: $(sha256sum "$LIB" | cut -d' ' -f1)"
+            echo "- Unstripped libnode bytes: $UNSTRIPPED_BYTES"
+            echo "- Stripped libnode bytes: $STRIPPED_BYTES"
+            echo "- Unstripped SHA-256: $UNSTRIPPED_SHA"
+            echo "- Stripped SHA-256: $STRIPPED_SHA"
             echo
             echo "### Dynamic dependencies"
             echo
@@ -96,6 +123,7 @@ jobs:
             runtime-poc-dynamic-dependencies.txt
             runtime-poc-program-headers.txt
             runtime-poc-library.sha256
-            runtime-poc-library-size.txt
+            runtime-poc-library-stripped.sha256
+            runtime-poc-library-sizes.txt
           if-no-files-found: error
           retention-days: 7
