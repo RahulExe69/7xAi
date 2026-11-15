@@ -6,7 +6,7 @@
 
 - Repository: RahulExe69/7xAi; it was empty when this project began. The only main-branch commit is a README bootstrap.
 - Minimum Android target: API 29; ABI: arm64-v8a.
-- Production Node baseline: v24.22.3 LTS. Node 24.20.0-0 mobile binary is POC-only.
+- Production Node baseline: v24.22.3 LTS. Node 24.22.1-0 full mobile binary is POC-only.
 - OmniRoute's accepted Node range includes Node 24; pin exact upstream tag, commit, lockfile and package integrity before packaging.
 - Native libraries must be packaged in APK ABI libraries; never execute downloaded ELF files from writable app storage.
 - The Node runtime lives in a dedicated :gateway process. node::Start() is one-shot; stop gracefully and exit the process, then restart in a new process.
@@ -31,7 +31,7 @@ Gate: a clean CI runner builds and installs a minimal 7xAI APK.
 
 1. Add a versioned runtime manifest containing artifact class (poc-only or production-approved), Node version, ABI, source repository/tag/commit, NDK version, patch-stack revision and SHA-256.
 2. Add tests rejecting an unapproved patch level, wrong hash, wrong ABI or POC artifact in a production build.
-3. For feasibility only, use the pinned digidem/nodejs-mobile v24.20.0-0 ARM64 library; verify its archive hash before extraction.
+3. For feasibility only, use the pinned fogtape/nodejs-mobile v24.22.1-0 (full Android archive) ARM64 library; verify its archive hash before extraction.
 4. Load libnode.so through Android's native library loader. Start node::Start() exactly once inside GatewayProcessService declared with android:process=":gateway".
 5. Test core runtime behavior: version, fs, crypto, fetch, TLS, DNS, loopback HTTP and native library loading.
 6. Gracefully close the HTTP listener and durable file/database handles, exit the gateway process, then test a fresh service process restart.
@@ -108,5 +108,5 @@ Alpha release is blocked until: Node 24.22.3 Android runtime is production-appro
 
 - Use native Android + embedded Node, not Termux or a remote VPS.
 - Use a dedicated :gateway process; never re-enter Node's one-shot start routine.
-- Treat Node 24.20.0-0 as a throwaway POC; Node 24.22.3 is the production baseline.
+- Treat Node 24.22.1-0 full as a throwaway POC; Node 24.22.3 is the production baseline.
 - No merging to main or claiming release readiness before all gates pass.
