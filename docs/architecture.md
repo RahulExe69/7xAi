@@ -25,7 +25,7 @@
 
 - Production security baseline: Node.js v24.22.3 LTS, released 2026-11-11 as a security release.
 - OmniRoute's current supported engines include Node 24.x (>=24.0.0 <27).
-- Throwaway proof-of-concept only: digidem/nodejs-mobile v24.20.0-0, Android archive SHA-256 f5ffbaf4f2679fa9180b0758c637c2f8fc8828300f95129badf213a028fb37bb. It is older than the production security baseline and must never ship.
+- Throwaway proof-of-concept only: fogtape/nodejs-mobile v24.22.1-0 full Android archive, SHA-256 d6fd9f610fe5d81fede8f0d400c5a62723247725a19831835f15abf4f0604250. It is behind the production security baseline and must never ship. Use full, not lite: the lite profile omits node:sqlite.
 - Production requires a reviewed Android/mobile patch stack rebased to Node v24.22.3, with patch hashes and native regression evidence. If that build cannot be produced, the release is blocked; do not silently ship the older POC runtime or downgrade to Node 18.
 - fogtape/nodejs-mobile is an external mobile build recipe, not an official Node.js Android support guarantee. Audit its patches and licenses before adopting the artifact.
 
@@ -60,7 +60,7 @@ Android 10/API 29 minimum target; ARM64 only; 4 GB RAM minimum test candidate an
 - OmniRoute Termux guide: https://github.com/cheaper-inference/OmniRoute/wiki/Termux-Guide
 - OmniRoute source: https://github.com/cheaper-inference/OmniRoute
 - Node 24.22.3 security release: https://nodejs.org/en/blog/release/v24.22.3/
-- Node 24 Android mobile build reference: https://github.com/digidem/nodejs-mobile/releases/tag/v24.20.0-0
+- Node 24 Android mobile build reference: https://github.com/fogtape/nodejs-mobile/releases/tag/v24.22.1-0
 - Android Node embedding reference project: https://github.com/narraeon/narraeon
 - Android W^X behavior: https://developer.android.com/about/versions/10/behavior-changes-all
 - Android special-use FGS: https://developer.android.com/reference/android/content/pm/ServiceInfo#FOREGROUND_SERVICE_TYPE_SPECIAL_USE
