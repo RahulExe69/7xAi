@@ -1,0 +1,36 @@
+# Gradle / Android
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+.externalNativeBuild/
+.cxx/
+captures/
+
+# Native build outputs and downloaded runtime artifacts
+runtime/**/out/
+runtime/**/cache/
+runtime/**/downloads/
+app/src/main/jniLibs/**/libnode.so
+
+# Local secrets / signing
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+secrets/
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Superpowers task workspace
+.superpowers/
