@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.sevenx.ai"
     compileSdk = 36
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
         applicationId = "com.sevenx.ai"
@@ -16,9 +17,13 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            // x86_64 is enabled for UI-only emulator tests. The native gateway
-            // and every release APK remain ARM64-only once libnode is integrated.
             abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++20"
+                arguments += "-DANDROID_STL=c++_shared"
+            }
         }
     }
 
@@ -30,11 +35,40 @@ android {
         animationsDisabled = true
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    sourceSets {
+        getByName("debug") {
+            // The Node 24.22.1-0 library is a debug-only POC. It must never be
+            // included in the shipping APK; release builds are blocked below.
+            jniLibs.srcDir(rootProject.file("runtime/poc/lite"))
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+val verifyNodeRuntimeForRelease by tasks.registering(Exec::class) {
+    workingDir(rootProject.projectDir)
+    commandLine(
+        "node",
+        "scripts/validate-runtime-manifest.mjs",
+        "runtime/node-runtime-lite.json",
+        "--for-release",
+    )
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(verifyNodeRuntimeForRelease)
 }
 
 dependencies {
