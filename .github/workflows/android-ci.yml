@@ -69,8 +69,16 @@ jobs:
         with:
           gradle-version: "9.9.1"
 
-      - name: Assemble and run unit tests
-        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
+      - name: Assemble ARM64 debug APK and run JVM tests
+        run: gradle --no-daemon -PsevenxAbis=arm64-v8a :app:assembleDebug :app:testDebugUnitTest
+
+      - name: Upload ARM64 debug POC APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 7xai-debug-arm64-node-poc
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Run Android UI and embedded Node runtime tests
         uses: reactivecircus/android-emulator-runner@v2
@@ -78,13 +86,13 @@ jobs:
           api-level: 36
           arch: x86_64
           profile: pixel_6
-          script: gradle --no-daemon :app:connectedDebugAndroidTest
+          script: gradle --no-daemon -PsevenxAbis=x86_64 :app:connectedDebugAndroidTest
 
-      - name: Upload debug APK
+      - name: Upload x86_64 emulator debug POC APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: 7xai-debug-node-poc-apk
+          name: 7xai-debug-x86_64-node-poc
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
