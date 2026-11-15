@@ -3,6 +3,12 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+val configuredAbis = providers.gradleProperty("sevenxAbis").orNull ?: "arm64-v8a"
+val buildAbis = configuredAbis.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+require(buildAbis.isNotEmpty() && buildAbis.all { it in setOf("arm64-v8a", "x86_64") }) {
+    "sevenxAbis must be arm64-v8a and/or x86_64"
+}
+
 android {
     namespace = "com.sevenx.ai"
     compileSdk = 36
@@ -17,7 +23,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += buildAbis
         }
         externalNativeBuild {
             cmake {
