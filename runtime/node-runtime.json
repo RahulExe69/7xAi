@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "artifactClass": "poc-only",
+  "runtime": "nodejs-mobile",
+  "nodeVersion": "24.22.1-0",
+  "productionNodeVersion": "24.22.3",
+  "abi": "arm64-v8a",
+  "sourceRepository": "https://github.com/fogtape/nodejs-mobile",
+  "sourceTag": "v24.22.1-0",
+  "sourceCommit": "b5bcc8d8e70f055333cd5efc317e3eb55bf0c9a5",
+  "recipeCommit": "d4aedf536d035bf4eeab7a7a6e18b73d154d0ea5",
+  "sourceTree": "59a1f9b50b39080936dc0e78838b3945da83d8e0",
+  "archiveUrl": "https://github.com/fogtape/nodejs-mobile/releases/download/v24.22.1-0/nodejs-mobile-android-24.22.1-0.zip",
+  "archiveSha256": "d6fd9f610fe5d81fede8f0d400c5a62723247725a19831835f15abf4f0604250",
+  "librarySha256": null,
+  "patchSetSha256": null,
+  "evidence": []
+}
