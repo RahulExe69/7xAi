@@ -21,6 +21,10 @@ export function validateRuntimeManifest(manifest, { forRelease = false } = {}) {
   }
   if (manifest.runtime !== 'nodejs-mobile') add('runtime must equal nodejs-mobile');
   if (manifest.abi !== 'arm64-v8a') add('Only arm64-v8a is supported for the shipping runtime');
+  if (!['full', 'lite'].includes(manifest.profile)) add('profile must be full or lite');
+  if (!Array.isArray(manifest.testAbis) || !manifest.testAbis.includes(manifest.abi) || manifest.testAbis.some((abi) => !['arm64-v8a', 'x86_64'].includes(abi))) {
+    add('testAbis must contain the shipping ABI and may only include arm64-v8a or x86_64');
+  }
 
   for (const field of ['nodeVersion', 'productionNodeVersion', 'sourceTag']) {
     if (typeof manifest[field] !== 'string' || manifest[field].trim() === '') {
@@ -83,7 +87,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  console.log(`Runtime manifest valid (${manifest.artifactClass}, Node ${manifest.nodeVersion}, ${manifest.abi}).`);
+  console.log(`Runtime manifest valid (${manifest.artifactClass}, Node ${manifest.nodeVersion}, ${manifest.profile}, ${manifest.abi}).`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

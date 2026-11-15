@@ -5,6 +5,11 @@
   "nodeVersion": "24.22.1-0",
   "productionNodeVersion": "24.22.3",
   "abi": "arm64-v8a",
+  "profile": "full",
+  "testAbis": [
+    "arm64-v8a",
+    "x86_64"
+  ],
   "sourceRepository": "https://github.com/fogtape/nodejs-mobile",
   "sourceTag": "v24.22.1-0",
   "sourceCommit": "b5bcc8d8e70f055333cd5efc317e3eb55bf0c9a5",

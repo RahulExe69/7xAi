@@ -5,7 +5,7 @@ on:
     branches:
       - "feat/**"
     paths:
-      - "runtime/node-runtime.json"
+      - "runtime/node-runtime*.json"
       - "scripts/fetch-libnode.sh"
       - ".github/workflows/node-runtime-poc.yml"
   workflow_dispatch:
@@ -19,9 +19,9 @@ concurrency:
 
 jobs:
   inspect:
-    name: Fetch and inspect ARM64 Node POC (not for release)
+    name: Compare full and lite Android Node POC
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -39,33 +39,45 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager "ndk;27.3.13750724"
 
-      - name: Validate provenance and fetch pinned POC library
+      - name: Validate provenance and fetch both POC profiles
         run: |
           node --test tests/runtime-manifest.test.mjs
           node scripts/validate-runtime-manifest.mjs runtime/node-runtime.json
+          node scripts/validate-runtime-manifest.mjs runtime/node-runtime-lite.json
           bash -n scripts/fetch-libnode.sh
-          bash scripts/fetch-libnode.sh
+          bash scripts/fetch-libnode.sh runtime/node-runtime.json
+          bash scripts/fetch-libnode.sh runtime/node-runtime-lite.json
 
-      - name: Inspect ELF architecture, dependencies, page alignment and stripped size
+      - name: Inspect each profile and test ABI
         shell: bash
         run: |
           set -euo pipefail
-          LIB="runtime/poc/arm64-v8a/libnode.so"
-          STRIPPED="runtime/poc/arm64-v8a/libnode.stripped.so"
           STRIP_TOOL="$ANDROID_HOME/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
           test -x "$STRIP_TOOL"
 
-          file "$LIB"
-          readelf -h "$LIB" | tee runtime-poc-elf-header.txt
-          grep -Fq "AArch64" runtime-poc-elf-header.txt
-          readelf -dW "$LIB" | tee runtime-poc-dynamic-dependencies.txt
-          readelf -lW "$LIB" | tee runtime-poc-program-headers.txt
+          for profile in full lite; do
+            for abi in arm64-v8a x86_64; do
+              LIB="runtime/poc/$profile/$abi/libnode.so"
+              STRIPPED="runtime/poc/$profile/$abi/libnode.stripped.so"
+              REPORT="runtime/poc/$profile/$abi"
+              test -s "$LIB"
 
-          python3 - <<'PY'
+              file "$LIB" | tee "$REPORT/libnode.file.txt"
+              readelf -h "$LIB" | tee "$REPORT/libnode.elf-header.txt"
+              if [[ "$abi" == "arm64-v8a" ]]; then
+                grep -Fq "AArch64" "$REPORT/libnode.elf-header.txt"
+              else
+                grep -Eq "X86-64|Advanced Micro Devices X86-64" "$REPORT/libnode.elf-header.txt"
+              fi
+              readelf -dW "$LIB" | tee "$REPORT/libnode.dynamic.txt"
+              readelf -lW "$LIB" | tee "$REPORT/libnode.program-headers.txt"
+
+              python3 - "$REPORT/libnode.program-headers.txt" <<'PY'
           import re
+          import sys
           from pathlib import Path
 
-          text = Path("runtime-poc-program-headers.txt").read_text()
+          text = Path(sys.argv[1]).read_text()
           alignments = []
           for line in text.splitlines():
               fields = line.split()
@@ -81,50 +93,44 @@ jobs:
               raise SystemExit("ELF does not meet the 16 KB page-alignment floor")
           PY
 
-          cp "$LIB" "$STRIPPED"
-          "$STRIP_TOOL" --strip-debug "$STRIPPED"
-          readelf --dyn-syms --wide "$LIB" | awk '/GLOBAL/ {print $8}' | sort -u > /tmp/node-symbols-before.txt
-          readelf --dyn-syms --wide "$STRIPPED" | awk '/GLOBAL/ {print $8}' | sort -u > /tmp/node-symbols-after.txt
-          diff -u /tmp/node-symbols-before.txt /tmp/node-symbols-after.txt
+              cp "$LIB" "$STRIPPED"
+              "$STRIP_TOOL" --strip-debug "$STRIPPED"
+              readelf --dyn-syms --wide "$LIB" | awk '/GLOBAL/ {print $8}' | sort -u > "$REPORT/symbols-before.txt"
+              readelf --dyn-syms --wide "$STRIPPED" | awk '/GLOBAL/ {print $8}' | sort -u > "$REPORT/symbols-after.txt"
+              diff -u "$REPORT/symbols-before.txt" "$REPORT/symbols-after.txt"
 
-          UNSTRIPPED_BYTES="$(stat -c %s "$LIB")"
-          STRIPPED_BYTES="$(stat -c %s "$STRIPPED")"
-          UNSTRIPPED_SHA="$(sha256sum "$LIB" | cut -d' ' -f1)"
-          STRIPPED_SHA="$(sha256sum "$STRIPPED" | cut -d' ' -f1)"
-          printf '%s  %s\n' "$UNSTRIPPED_SHA" "$LIB" | tee runtime-poc-library.sha256
-          printf '%s  %s\n' "$STRIPPED_SHA" "$STRIPPED" | tee runtime-poc-library-stripped.sha256
-          printf 'Unstripped bytes: %s\nStripped bytes: %s\n' "$UNSTRIPPED_BYTES" "$STRIPPED_BYTES" | tee runtime-poc-library-sizes.txt
+              UNSTRIPPED_BYTES="$(stat -c %s "$LIB")"
+              STRIPPED_BYTES="$(stat -c %s "$STRIPPED")"
+              UNSTRIPPED_SHA="$(sha256sum "$LIB" | cut -d' ' -f1)"
+              STRIPPED_SHA="$(sha256sum "$STRIPPED" | cut -d' ' -f1)"
+              printf '%s  %s\n' "$UNSTRIPPED_SHA" "$LIB" > "$REPORT/libnode.sha256"
+              printf '%s  %s\n' "$STRIPPED_SHA" "$STRIPPED" > "$REPORT/libnode.stripped.sha256"
+              printf 'Profile: %s\nABI: %s\nUnstripped bytes: %s\nStripped bytes: %s\nUnstripped SHA-256: %s\nStripped SHA-256: %s\n' \
+                "$profile" "$abi" "$UNSTRIPPED_BYTES" "$STRIPPED_BYTES" "$UNSTRIPPED_SHA" "$STRIPPED_SHA" > "$REPORT/libnode.sizes.txt"
+            done
+          done
 
           {
-            echo "## Android Node runtime POC inspection"
+            echo "## Node mobile profile size comparison (POC only)"
             echo
-            echo "- Classification: POC only; not eligible for release"
-            echo "- Node: $(node -p "require('./runtime/node-runtime.json').nodeVersion")"
-            echo "- ABI: arm64-v8a"
-            echo "- Unstripped libnode bytes: $UNSTRIPPED_BYTES"
-            echo "- Stripped libnode bytes: $STRIPPED_BYTES"
-            echo "- Unstripped SHA-256: $UNSTRIPPED_SHA"
-            echo "- Stripped SHA-256: $STRIPPED_SHA"
-            echo
-            echo "### Dynamic dependencies"
-            echo
-            grep NEEDED runtime-poc-dynamic-dependencies.txt || true
-            echo
-            echo "### ELF program headers"
-            echo
-            grep LOAD runtime-poc-program-headers.txt
+            for profile in full lite; do
+              for abi in arm64-v8a x86_64; do
+                echo "### $profile / $abi"
+                cat "runtime/poc/$profile/$abi/libnode.sizes.txt"
+                echo
+                echo "Dependencies:"
+                grep NEEDED "runtime/poc/$profile/$abi/libnode.dynamic.txt" || true
+                echo
+              done
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload inspection reports (no runtime binary)
+      - name: Upload inspection reports only
         uses: actions/upload-artifact@v4
         with:
-          name: node-android-runtime-poc-inspection
+          name: node-android-runtime-profile-comparison
           path: |
-            runtime-poc-elf-header.txt
-            runtime-poc-dynamic-dependencies.txt
-            runtime-poc-program-headers.txt
-            runtime-poc-library.sha256
-            runtime-poc-library-stripped.sha256
-            runtime-poc-library-sizes.txt
+            runtime/poc/*/*/*.txt
+            runtime/poc/*/*/*.sha256
           if-no-files-found: error
           retention-days: 7

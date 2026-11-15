@@ -1,32 +1,48 @@
 #!/usr/bin/env bash
-# Fetches the pinned Android Node runtime for the POC only. This script never
-# installs the POC runtime into the shipping APK and refuses production manifests.
+# Fetches a pinned Node Android POC archive and extracts only approved test ABIs.
+# All output is ignored by Git and is never eligible for a release APK.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANIFEST="${ROOT_DIR}/runtime/node-runtime.json"
-MANIFEST_INFO="$(node -e 'const m=require(process.argv[1]); console.log([m.artifactClass,m.nodeVersion,m.archiveUrl,m.archiveSha256,m.abi].join("\n"))' "${MANIFEST}")"
+MANIFEST_ARG="${1:-runtime/node-runtime.json}"
+MANIFEST="${ROOT_DIR}/${MANIFEST_ARG}"
+if [[ ! -f "${MANIFEST}" ]]; then
+  echo "Runtime manifest not found: ${MANIFEST}" >&2
+  exit 2
+fi
+
+MANIFEST_INFO="$(node -e 'const m=require(process.argv[1]); console.log([m.artifactClass,m.nodeVersion,m.archiveUrl,m.archiveSha256,m.abi,m.profile,...m.testAbis].join("\n"))' "${MANIFEST}")"
 mapfile -t INFO <<<"${MANIFEST_INFO}"
 ARTIFACT_CLASS="${INFO[0]}"
 NODE_VERSION="${INFO[1]}"
 ARCHIVE_URL="${INFO[2]}"
 ARCHIVE_SHA256="${INFO[3]}"
-ABI="${INFO[4]}"
+SHIPPING_ABI="${INFO[4]}"
+PROFILE="${INFO[5]}"
+TEST_ABIS=("${INFO[@]:6}")
 
 if [[ "${ARTIFACT_CLASS}" != "poc-only" ]]; then
   echo "Refusing to fetch POC binaries for artifact class: ${ARTIFACT_CLASS}" >&2
-  exit 2
-fi
-if [[ "${ABI}" != "arm64-v8a" ]]; then
-  echo "This fetch script only supports arm64-v8a, got ${ABI}" >&2
   exit 2
 fi
 if [[ "${NODE_VERSION}" != "24.22.1-0" ]]; then
   echo "Runtime version does not match the reviewed POC pin" >&2
   exit 2
 fi
+if [[ "${SHIPPING_ABI}" != "arm64-v8a" ]]; then
+  echo "Shipping ABI must remain arm64-v8a" >&2
+  exit 2
+fi
+if [[ "${PROFILE}" != "full" && "${PROFILE}" != "lite" ]]; then
+  echo "Runtime profile must be full or lite" >&2
+  exit 2
+fi
+if [[ "${#TEST_ABIS[@]}" -eq 0 ]]; then
+  echo "Manifest has no test ABIs" >&2
+  exit 2
+fi
 
-ARCHIVE_NAME="nodejs-mobile-android-${NODE_VERSION}.zip"
+ARCHIVE_NAME="$(node -e 'console.log(new URL(process.argv[1]).pathname.split("/").pop())' "${ARCHIVE_URL}")"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
@@ -38,23 +54,35 @@ printf '%s  %s\n' "${ARCHIVE_SHA256}" "${WORK_DIR}/${ARCHIVE_NAME}" | sha256sum 
 }
 
 unzip -Z1 "${WORK_DIR}/${ARCHIVE_NAME}" >"${WORK_DIR}/files.txt"
-grep -Fxq "bin/${ABI}/libnode.so" "${WORK_DIR}/files.txt" || {
-  echo "Pinned archive does not contain bin/${ABI}/libnode.so" >&2
-  exit 4
-}
+EXTRACT_ARGS=()
+for abi in "${TEST_ABIS[@]}"; do
+  if [[ "${abi}" != "arm64-v8a" && "${abi}" != "x86_64" ]]; then
+    echo "Unsupported test ABI: ${abi}" >&2
+    exit 2
+  fi
+  grep -Fxq "bin/${abi}/libnode.so" "${WORK_DIR}/files.txt" || {
+    echo "Pinned archive does not contain bin/${abi}/libnode.so" >&2
+    exit 4
+  }
+  EXTRACT_ARGS+=("bin/${abi}/libnode.so")
+done
 grep -Fxq "include/node/node.h" "${WORK_DIR}/files.txt" || {
   echo "Pinned archive does not contain include/node/node.h" >&2
   exit 4
 }
+EXTRACT_ARGS+=("include/node/*")
 
-mkdir -p "${WORK_DIR}/extract" "${ROOT_DIR}/runtime/poc/${ABI}"
-unzip -q "${WORK_DIR}/${ARCHIVE_NAME}" \
-  "bin/${ABI}/libnode.so" "include/node/*" -d "${WORK_DIR}/extract"
-cp "${WORK_DIR}/extract/bin/${ABI}/libnode.so" "${ROOT_DIR}/runtime/poc/${ABI}/libnode.so"
-rm -rf "${ROOT_DIR}/runtime/poc/include"
-mkdir -p "${ROOT_DIR}/runtime/poc/include"
-cp -R "${WORK_DIR}/extract/include/node" "${ROOT_DIR}/runtime/poc/include/node"
-sha256sum "${ROOT_DIR}/runtime/poc/${ABI}/libnode.so" \
-  >"${ROOT_DIR}/runtime/poc/${ABI}/libnode.so.sha256"
-printf 'Fetched verified Node %s POC runtime for %s. This binary is not eligible for release APKs.\n' \
-  "${NODE_VERSION}" "${ABI}"
+DEST_ROOT="${ROOT_DIR}/runtime/poc/${PROFILE}"
+rm -rf "${DEST_ROOT}"
+mkdir -p "${WORK_DIR}/extract" "${DEST_ROOT}"
+unzip -q "${WORK_DIR}/${ARCHIVE_NAME}" "${EXTRACT_ARGS[@]}" -d "${WORK_DIR}/extract"
+for abi in "${TEST_ABIS[@]}"; do
+  mkdir -p "${DEST_ROOT}/${abi}"
+  cp "${WORK_DIR}/extract/bin/${abi}/libnode.so" "${DEST_ROOT}/${abi}/libnode.so"
+  sha256sum "${DEST_ROOT}/${abi}/libnode.so" >"${DEST_ROOT}/${abi}/libnode.so.sha256"
+done
+mkdir -p "${DEST_ROOT}/include"
+cp -R "${WORK_DIR}/extract/include/node" "${DEST_ROOT}/include/node"
+cp "${WORK_DIR}/files.txt" "${DEST_ROOT}/archive-files.txt"
+printf 'Fetched verified Node %s %s POC runtime. Shipping ABI: %s. Test ABIs: %s. This runtime is not eligible for release APKs.\n' \
+  "${NODE_VERSION}" "${PROFILE}" "${SHIPPING_ABI}" "${TEST_ABIS[*]}"
