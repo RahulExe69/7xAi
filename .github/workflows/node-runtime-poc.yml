@@ -35,6 +35,7 @@ jobs:
         run: |
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
           echo "/usr/local/lib/android/sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/local/lib/android/sdk/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses
           sdkmanager "ndk;27.3.13750724"
 
