@@ -1,112 +1,143 @@
 # 7xAI Embedded OmniRoute — Implementation Plan
 
-> Approved execution direction: native, stage-gated implementation. Keep work on feat/android-embedded-omniroute; do not merge into main until a reviewed PR and every release gate passes.
+> **For agentic workers:** Execute task-by-task with TDD and a fresh review gate after every independently testable milestone. Work only on `feat/android-embedded-omniroute`; do not merge to `main` until a reviewed PR and all alpha gates pass.
+
+**Goal:** Build a standalone ARM64 Android APK that hosts an authenticated, loopback-only OmniRoute server inside an embedded Node.js runtime, with no PC, VPS or Termux requirement.
+
+**Architecture:** Kotlin/Compose UI + dedicated Android `:gateway` service process + JNI-embedded Node.js + backend-only OmniRoute bundle. The server runs inside the Node process using an in-process entrypoint; external providers perform model inference.
+
+**Tech Stack:** Kotlin, Jetpack Compose, Gradle, Android NDK/CMake, JNI/C++, Node.js mobile build recipe, OmniRoute Next.js backend-only build, GitHub Actions.
+
+**Spec:** `docs/architecture.md`; source-level constraints in `docs/omniroute-mobile-audit.md`.
 
 ## Global constraints
 
-- Repository: RahulExe69/7xAi; it was empty when this project began. The only main-branch commit is a README bootstrap.
-- Minimum Android target: API 29; ABI: arm64-v8a.
-- Production Node baseline: v24.22.3 LTS. Node 24.22.1-0 full mobile binary is POC-only.
-- OmniRoute's accepted Node range includes Node 24; pin exact upstream tag, commit, lockfile and package integrity before packaging.
-- Native libraries must be packaged in APK ABI libraries; never execute downloaded ELF files from writable app storage.
-- The Node runtime lives in a dedicated :gateway process. node::Start() is one-shot; stop gracefully and exit the process, then restart in a new process.
-- Local gateway binds to 127.0.0.1, requires authentication, and stores provider credentials using Keystore-backed encryption.
-- Do not mislabel a permanent server as dataSync. Assess specialUse and distribution-policy requirements; keep a visible-session fallback.
-- No POC artifact, mock test, emulator-only pass or stale runtime may be described as a production-ready release.
+- Repository `RahulExe69/7xAi`; work on `feat/android-embedded-omniroute`; no changes to `main`.
+- Android minimum API 29; production ABI `arm64-v8a`; x86_64 is permitted only for emulator test builds.
+- Production Node baseline `v24.22.3` LTS; `fogtape/nodejs-mobile v24.22.1-0` full archive is POC-only.
+- OmniRoute stable tag `v3.8.53`, commit `191dce8d534ceb56c28a08e71381284a9a87838f`.
+- Backend-only build uses `OMNIROUTE_BUILD_BACKEND_ONLY=1`; server runner for mobile is an in-process entrypoint, not the child-process standalone launcher.
+- Never execute a downloaded ELF from writable app storage; native libraries must be inside the APK ABI library area.
+- Node `node::Start()` is one-shot and runs in a dedicated `:gateway` process; stop, exit process, then restart fresh process.
+- Runtime must set `HOST=127.0.0.1`, `PORT=20128`, app-private `HOME`, Android `TMPDIR`, `DATA_DIR`, and compile cache before starting Node.
+- Mobile runtime must not assume `child_process.spawn/fork/execSync`, runtime npm installs, desktop keychain, desktop TPROXY or host-built native addons.
+- SQLite fallback is `node:sqlite`, then `sql.js`; skip runtime `npm install better-sqlite3` on mobile.
+- API key and local gateway credential handling must be authenticated, encrypted and redacted; no secrets in assets, logs, crash reports or backups.
+- Do not use Android `dataSync` as a perpetual service category; validate `specialUse` / distribution rules and keep a visible-session fallback.
+- Never call the 24.22.1 POC runtime production-ready; no release APK without production Node 24.22.3 and real-device evidence.
 
-## Environment note
+## Environment / CI
 
-The current authoring environment has no Android SDK/NDK, Gradle installation, emulator or connected Android handset. Android builds should run in GitHub Actions on pinned runners. Real-device checks remain a separate release gate and cannot be claimed from CI alone.
+The authoring environment has no Android SDK/NDK, Gradle, emulator or connected phone. Build verification must run in GitHub Actions. Emulator tests are useful but cannot replace ARM64 hardware verification. The first UI scaffold's Gradle assembly and unit-test tasks passed in CI; emulator smoke test completion is a separate check.
 
-## Phase 0 — Repository and project foundation
+## Task 0 — Project foundation
 
-1. Keep the main branch as a clean README-only entry point.
-2. Create the Android app skeleton on this feature branch: Gradle wrapper, version catalog, Kotlin/Compose app, manifest, app ID com.sevenx.ai, install smoke test.
-3. Set up CI with Android SDK/NDK and ARM64 emulator tests.
-4. Verify clean build and install before native runtime integration.
+**Files:** Android Gradle project, `app/src/main`, `.github/workflows/android-ci.yml`.
 
-Gate: a clean CI runner builds and installs a minimal 7xAI APK.
+- [x] Add stable Android API 36 build configuration and pinned plugins/dependencies.
+- [x] Add the 7xAI Compose home/status scaffold.
+- [x] Add instrumentation test that launches the main activity and asserts the status label.
+- [x] Add CI for debug APK assembly, unit tests and emulator UI smoke tests.
+- [ ] Confirm latest CI run has completed and preserve the build artifact as UI-only until runtime integration.
 
-## Phase 1 — Node Android runtime proof-of-concept (highest risk)
+**Gate:** clean CI build and instrumentation smoke test pass. No native runtime is implied by this task.
 
-1. Add a versioned runtime manifest containing artifact class (poc-only or production-approved), Node version, ABI, source repository/tag/commit, NDK version, patch-stack revision and SHA-256.
-2. Add tests rejecting an unapproved patch level, wrong hash, wrong ABI or POC artifact in a production build.
-3. For feasibility only, use the pinned fogtape/nodejs-mobile v24.22.1-0 (full Android archive) ARM64 library; verify its archive hash before extraction.
-4. Load libnode.so through Android's native library loader. Start node::Start() exactly once inside GatewayProcessService declared with android:process=":gateway".
-5. Test core runtime behavior: version, fs, crypto, fetch, TLS, DNS, loopback HTTP and native library loading.
-6. Gracefully close the HTTP listener and durable file/database handles, exit the gateway process, then test a fresh service process restart.
-7. Rebase/rebuild the Android mobile patch stack to Node v24.22.3. Review every patch and rerun the native test subset. Never ship the older POC binary.
+## Task 1 — Android Node runtime proof-of-concept
 
-Gate: real ARM64 Android device passes the POC lifecycle tests AND a production-approved Node 24.22.3 runtime is built and regression-tested. If production Node 24.22.3 cannot be produced, stop release work and reassess.
+**Files:** `runtime/manifest.json`, `scripts/fetch-libnode.sh`, `gateway-runtime/src/main/cpp/CMakeLists.txt`, `native-lib.cpp`, `NativeNode.kt`, POC-only Android service/test module, CI runtime workflow.
 
-## Phase 2 — OmniRoute source and dependency audit
+1. Add a runtime manifest schema: artifact class (`poc-only` or `production-approved`), Node version, source repo/tag/commit, ABI, archive SHA-256, NDK version, API level, patch recipe commit and binary SHA-256.
+2. Add a unit test that rejects missing hash, wrong ABI, mismatched Node version, unknown artifact class and any POC artifact in release variants.
+3. Fetch `fogtape/nodejs-mobile v24.22.1-0` full archive over HTTPS; verify SHA-256 `d6fd9f610fe5d81fede8f0d400c5a62723247725a19831835f15abf4f0604250`. Extract only required ABI library and headers; never commit native binaries.
+4. Implement the JNI bridge and load `libnode.so` from APK native libraries. Do not use downloaded executables.
+5. Start Node only once in a dedicated `:gateway` process. Set environment and working directory before Node initialization.
+6. Test `process.version`, mobile marker, `fs`, `crypto`, `fetch`, TLS, DNS, loopback HTTP, environment access, temp directory and graceful listener shutdown.
+7. Test gateway process death and fresh-process restart. Assert the same process never re-enters `node::Start()`.
+8. Rebuild the mobile patch recipe against Node `v24.22.3`; review all patch changes, run upstream curated Android tests and produce a runtime provenance manifest. Keep the 24.22.1 artifact POC-only.
 
-1. Pin the exact OmniRoute release, source commit, Node engines, package lock and integrity hash.
-2. Audit production server dependencies, build output, native addons, Electron imports, desktop keychain dependencies, child_process, watcher APIs and optional ONNX components.
-3. Determine whether Node's built-in SQLite is sufficient or an Android-built better-sqlite3 addon is needed. Test migrations, read/write, clean close and restart.
-4. Produce a deterministic minimal headless server bundle and full transitive license/NOTICE inventory.
-5. Verify the real server under embedded Node: start, health, authenticated GET /v1/models, mock-provider chat and streaming SSE.
+**Gate:** real ARM64 Android device passes smoke and lifecycle tests, and a separately built, reviewed Node 24.22.3 Android runtime passes native regression checks. Failure to produce the production runtime blocks alpha release.
 
-Gate: no unreviewed native dependency, missing runtime file or unsupported server feature.
+## Task 2 — OmniRoute server bundle and mobile compatibility
 
-## Phase 3 — Android gateway process and service lifecycle
+**Files:** `scripts/build-omniroute-mobile.sh`, `scripts/patches/omniroute-mobile/`, `runtime/omniroute-manifest.json`, `gateway-runtime/src/main/assets` packaging.
 
-1. Main UI process controls GatewayProcessService using explicit Binder/Messenger IPC.
-2. Gateway process starts Node once, reports lifecycle state and server readiness to the UI process.
-3. Implement an authenticated shutdown path that flushes storage and terminates Node cleanly; process death is required before restart.
-4. Implement state reconciliation after process death, start timeout, port conflict, DB-lock/corruption simulation and notification Stop.
-5. Validate service category, Android 14+ requirements and Android 15 timeout behavior. Never show Running unless authenticated health check and /v1/models pass.
+1. Clone stable OmniRoute tag `v3.8.53` at exact commit `191dce8d534ceb56c28a08e71381284a9a87838f`; verify source identity and lockfile before installing dependencies.
+2. Run the backend-only production build with `OMNIROUTE_BUILD_BACKEND_ONLY=1`. Assert all changed App Router pages are restored and `git status --porcelain` is clean after build, even when the build fails.
+3. Inspect the resulting server bundle, static assets, API route files, migrations, package imports and all native or dynamically imported modules.
+4. Add a mobile SQLite fallback patch: when `process.versions.mobile` is present, do not attempt runtime npm install via `child_process.execSync`; load `node:sqlite`, then `sql.js`.
+5. Audit `better-sqlite3`, `keytar`, `onnxruntime-node`, `sqlite-vec`, `wreq-js`, `sharp`, TPROXY, SWC and desktop helpers. Build an explicit mobile allowlist. If `wreq-js` is required by routing, build a compatible Android N-API addon or provide a tested fetch/Undici fallback.
+6. The Android runtime must not invoke `scripts/dev/run-standalone.mjs` unchanged because it spawns a child process. Test candidate argv `["node", "scripts/dev/run-next.mjs", "start"]` directly through `node::Start()`.
+7. Package only verified server bundle/runtime files, migrations and all required third-party license notices.
 
-Gate: repeat start/stop across new gateway processes with no leaked sockets, duplicate instances or corrupted data.
+**Gate:** actual OmniRoute production bundle boots under embedded Node on Android, authenticated `GET /v1/models` works, DB initializes and persists, and mock-provider SSE chat completes without unsupported child-process/native imports.
 
-## Phase 4 — Security and secrets
+## Task 3 — Android gateway service and process lifecycle
 
-1. Generate a random local gateway credential.
-2. Store provider credentials with a random data-encryption key protected by Android Keystore; exclude secrets from Android backup.
-3. Require auth on loopback for every app-owned API call.
-4. Redact API keys, authorization headers, OAuth codes and prompts from logs/diagnostics.
-5. Disable WebView file/universal access and persistent WebView storage for secrets; allow only the local gateway origin.
-6. Verify non-loopback binding is rejected and exported Android components are minimized.
+**Files:** `GatewayProcessService.kt`, Binder/Messenger IPC, notification actions, process-state repository, service tests.
 
-Gate: negative tests prove unauthenticated calls fail and secret material never appears in app files/logs/backups.
+1. Main UI process controls the isolated gateway process using explicit Binder or Messenger IPC.
+2. Report states `Stopped`, `Starting`, `Ready`, `Stopping`, `Failed`; derive `Ready` only from authenticated health and `/v1/models` probe.
+3. Implement graceful shutdown of server, DB, worker/timer resources and SSE sessions before gateway process termination.
+4. Restart by terminating the dedicated process and creating a new process. Do not call Node start twice.
+5. Test repeated start/stop, concurrent start requests, port collision, timeout, binder disconnect, low-memory kill, stale DB lock and interrupted shutdown.
+6. Investigate Android 14+ foreground service permission/type and Android 15 timeout behavior. Evaluate `specialUse` only if the use case and distribution policy permit it. Keep a foreground-session-only fallback.
 
-## Phase 5 — 7xAI product UI
+**Gate:** lifecycle tests prove no duplicate server, leaked socket or corrupted database. UI never shows Running on stale state.
 
-1. Home/dashboard: server lifecycle, model readiness, current model and error state.
-2. Chat: conversation history, model selector, streaming replies, cancel, retry and recoverable errors.
-3. Provider management: use supported OmniRoute management routes; restrict local WebView or build native setup only from documented APIs.
-4. Diagnostics: pinned component versions, database status, bind address, bundle hash and redacted logs.
-5. Ensure the UI process remains responsive when the gateway process crashes or restarts.
+## Task 4 — Security and credential storage
 
-Gate: automated mock-provider chat test streams, cancels, retries, switches models and handles server shutdown truthfully.
+**Files:** Keystore key manager, encrypted credential store, gateway auth provider, backup rules, redacted logger, security tests.
 
-## Phase 6 — Reproducible CI and release pipeline
+1. Generate a random local gateway credential; never use a fixed token.
+2. Encrypt provider keys and local secrets using an app data key protected by Android Keystore.
+3. Keep the database/config under app-private no-backup storage; provide explicit encrypted export only if later needed.
+4. Require auth on app-to-gateway requests even though the gateway binds to loopback.
+5. Redact Authorization headers, API keys, OAuth codes, prompts and bodies from logs/diagnostics.
+6. Ensure Android components are non-exported unless they are the launcher or a platform-required receiver; restrict WebView origin and file access if a WebView is later used.
+7. Verify gateway is unreachable from LAN and unauthenticated localhost requests fail.
 
-1. Build Node Android runtime from pinned source and patches; verify source and artifact hashes.
-2. Build the OmniRoute server bundle from a clean lockfile with reproducible output and license inventory.
-3. Assemble unsigned PR APKs; sign release APKs only with protected CI secrets.
-4. Run Gradle unit/instrumentation tests, runtime tests, dependency audit, secret scan and APK analyzer.
-5. Upload APK, SHA-256, SBOM/license notices and component manifest as release artifacts.
+**Gate:** security negative tests pass; no secrets are present in backup, logcat, crash bundle, assets or Git history.
 
-Gate: a clean CI run produces the same versioned component manifest and a verified installable ARM64 APK.
+## Task 5 — 7xAI product interface
 
-## Phase 7 — Real-device alpha validation
+**Files:** Compose dashboard, chat view-model, provider config screens, model picker, conversation store, diagnostics.
 
-Test Android 10, 13, 14 and 15+ where available, including one real OEM handset. Cover first install, start/stop, screen-off, notification Stop, app process death, Android low-memory pressure, offline/online recovery, provider timeout, database recovery and reboot behavior. Measure APK size, installed size, extracted server data, idle/active RAM, CPU, thermal behavior and battery draw. Replace all provisional estimates with measured results.
+1. Replace the placeholder status card with real gateway lifecycle and health.
+2. Add API-key/provider configuration using secure storage.
+3. Implement model listing, model selector, chat history, SSE streaming, cancel, retry and network interruption recovery.
+4. Add provider usage/status and clear handling for rate limits/quota.
+5. Add diagnostics showing pinned component versions, active SQLite driver, bind address and redacted logs.
+6. Do not ship the OmniRoute dashboard; use the native UI against supported APIs.
 
-Alpha release is blocked until: Node 24.22.3 Android runtime is production-approved; OmniRoute core APIs and persistence pass; local auth and secret protection pass; lifecycle/FGS policy is defensible; device tests pass; CI emits a signed APK with hash and notices.
+**Gate:** mock provider tests cover list, selection, stream, cancellation, retries, offline errors and gateway stop during chat.
+
+## Task 6 — Reproducible CI and release workflow
+
+**Files:** GitHub Actions runtime build, OmniRoute bundle build, artifact assembler, SBOM/license output, release job.
+
+1. Build the mobile Node runtime from pinned source/patches on Linux with pinned NDK and Python toolchain.
+2. Verify source tree hash, patch series, NDK version, ABI, ELF page alignment, binary hash and notice inventory.
+3. Build OmniRoute backend-only bundle from exact tag/lockfile, apply only reviewed mobile patches and verify clean source tree afterwards.
+4. Assemble debug artifacts for PRs; sign release APKs only using protected signing secrets.
+5. Run unit, instrumentation, runtime, native, bundle, security, dependency, license, secret-scan and APK-size checks.
+6. Publish APK, SHA-256, component manifest, SBOM and notices.
+
+**Gate:** clean CI produces a reproducible ARM64 release candidate and full provenance record.
+
+## Task 7 — Real-device alpha validation
+
+Test Android 10, 13, 14, 15+ and at least one physical ARM64 OEM handset. Cover install/update, first runtime extraction, service start/stop, screen off, notification Stop, app process kill, system low-memory pressure, reboot, offline/online recovery, long SSE streaming, provider timeout, DB recovery and storage pressure.
+
+Measure real APK size, expanded app data, runtime extraction size, idle/active RAM, CPU, thermal behavior and battery impact during 15/30/60-minute runs. Replace all estimates with measured figures.
+
+**Alpha release is blocked until:** Node 24.22.3 production runtime is approved; OmniRoute server bundle and SQLite pass; Android lifecycle/FGS policy is defensible; security tests pass; real device tests pass; signed APK and provenance artifacts are verified.
 
 ## Review focus
 
-- Node ABI/native addon compatibility, especially SQLite.
-- One-shot node::Start() lifecycle and new-process restart.
-- Foreground-service eligibility and Android 15 time limits.
-- Loopback exposure and credentials stored on device.
-- OEM process kills, network interruptions and streaming cancellation.
-
-## Decisions recorded
-
-- Use native Android + embedded Node, not Termux or a remote VPS.
-- Use a dedicated :gateway process; never re-enter Node's one-shot start routine.
-- Treat Node 24.22.1-0 full as a throwaway POC; Node 24.22.3 is the production baseline.
-- No merging to main or claiming release readiness before all gates pass.
+- Node ABI / native addon compatibility, including Android 16 KB page size.
+- One-shot Node process lifecycle and clean server/database stop.
+- Android background restrictions, foreground service category and OEM kills.
+- Mobile SQLite fallback bypassing runtime package installation.
+- Required transports / dynamic optional imports and WebSocket/SSE support.
+- Loopback exposure, local authentication, provider key persistence and backup behavior.
+- Runtime binary provenance, exact upstream pin and all third-party notices.
