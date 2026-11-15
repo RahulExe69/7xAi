@@ -1,0 +1,101 @@
+name: Node Android Runtime POC Inspection
+
+on:
+  push:
+    branches:
+      - "feat/**"
+    paths:
+      - "runtime/node-runtime.json"
+      - "scripts/fetch-libnode.sh"
+      - ".github/workflows/node-runtime-poc.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: node-runtime-poc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    name: Fetch and inspect ARM64 Node POC (not for release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24.x"
+
+      - name: Validate provenance and fetch pinned POC library
+        run: |
+          node --test tests/runtime-manifest.test.mjs
+          node scripts/validate-runtime-manifest.mjs runtime/node-runtime.json
+          bash -n scripts/fetch-libnode.sh
+          bash scripts/fetch-libnode.sh
+
+      - name: Inspect ELF architecture, dependencies and page alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB="runtime/poc/arm64-v8a/libnode.so"
+          file "$LIB"
+          readelf -h "$LIB" | tee runtime-poc-elf-header.txt
+          grep -Fq "AArch64" runtime-poc-elf-header.txt
+          readelf -dW "$LIB" | tee runtime-poc-dynamic-dependencies.txt
+          readelf -lW "$LIB" | tee runtime-poc-program-headers.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path("runtime-poc-program-headers.txt").read_text()
+          alignments = []
+          for line in text.splitlines():
+              fields = line.split()
+              if fields and fields[0] == "LOAD":
+                  candidate = fields[-1]
+                  if re.fullmatch(r"0x[0-9a-fA-F]+", candidate):
+                      alignments.append(int(candidate, 16))
+          if not alignments:
+              raise SystemExit("No ELF LOAD segment alignments were found")
+          smallest = min(alignments)
+          print(f"Smallest PT_LOAD alignment: 0x{smallest:x} ({smallest} bytes)")
+          if smallest < 16384:
+              raise SystemExit("ELF does not meet the 16 KB page-alignment floor")
+          PY
+          sha256sum "$LIB" | tee runtime-poc-library.sha256
+          du -h "$LIB" | tee runtime-poc-library-size.txt
+          {
+            echo "## Android Node runtime POC inspection"
+            echo
+            echo "- Classification: POC only; not eligible for release"
+            echo "- Node: $(node -p "require('./runtime/node-runtime.json').nodeVersion")"
+            echo "- ABI: arm64-v8a"
+            echo "- Library size: $(du -h "$LIB" | cut -f1)"
+            echo "- Library SHA-256: $(sha256sum "$LIB" | cut -d' ' -f1)"
+            echo
+            echo "### Dynamic dependencies"
+            echo
+            grep NEEDED runtime-poc-dynamic-dependencies.txt || true
+            echo
+            echo "### ELF program headers"
+            echo
+            grep LOAD runtime-poc-program-headers.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload inspection reports (no runtime binary)
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-android-runtime-poc-inspection
+          path: |
+            runtime-poc-elf-header.txt
+            runtime-poc-dynamic-dependencies.txt
+            runtime-poc-program-headers.txt
+            runtime-poc-library.sha256
+            runtime-poc-library-size.txt
+          if-no-files-found: error
+          retention-days: 7
