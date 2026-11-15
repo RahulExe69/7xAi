@@ -8,7 +8,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.sevenx.ai.MainActivity
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -31,7 +30,7 @@ class EmbeddedNodeRuntimeTest {
         assertEquals(200, firstHealth.status)
         val firstJson = JSONObject(firstHealth.body)
         assertTrue(firstJson.getString("nodeVersion").startsWith("v24.22.1"))
-        assertFalse(firstJson.getString("mobileRuntime").isBlank())
+        assertTrue(firstJson.getString("architecture") in setOf("arm64", "x64"))
 
         // Loopback does not bypass authentication, even for requests originating on-device.
         assertEquals(401, request("/healthz", token = null).status)
@@ -44,7 +43,9 @@ class EmbeddedNodeRuntimeTest {
         startGateway(context)
         val secondHealth = waitForHealth(token)
         assertEquals(200, secondHealth.status)
-        assertTrue(JSONObject(secondHealth.body).getString("nodeVersion").startsWith("v24.22.1"))
+        val secondJson = JSONObject(secondHealth.body)
+        assertTrue(secondJson.getString("nodeVersion").startsWith("v24.22.1"))
+        assertTrue(secondJson.getString("architecture") in setOf("arm64", "x64"))
 
         request("/shutdown", method = "POST", token = token)
         waitUntilGatewayIsDown()

@@ -34,7 +34,8 @@ const server = http.createServer((request, response) => {
     sendJson(response, 200, {
       status: 'ok',
       nodeVersion: process.version,
-      mobileRuntime: process.versions.mobile ?? '',
+      platform: process.platform,
+      architecture: process.arch,
       pid: process.pid,
       host: HOST,
       port: PORT,

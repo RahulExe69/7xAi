@@ -36,14 +36,19 @@ class GatewayProcessService : Service() {
             }
 
             val cache = File(cacheDir, "node-poc").apply { mkdirs() }
+            val compileCache = File(cache, "compile-cache").apply { mkdirs() }
+            val appHome = noBackupFilesDir
             val environment = arrayOf(
                 "NODE_ENV=production",
                 "HOST=127.0.0.1",
                 "PORT=$PORT",
                 "POC_TOKEN=$POC_TOKEN",
-                "HOME=${filesDir.absolutePath}",
+                "HOME=${appHome.absolutePath}",
                 "TMPDIR=${cache.absolutePath}",
-                "NODE_COMPILE_CACHE=${File(cache, "compile-cache").absolutePath}",
+                "NODE_COMPILE_CACHE=${compileCache.absolutePath}",
+                "NODE_COMPILE_CACHE_PORTABLE=1",
+                "NODE_OPTIONS=--max-old-space-size-percentage=20",
+                "UV_THREADPOOL_SIZE=2",
             )
             val arguments = arrayOf("node", script.absolutePath)
 
