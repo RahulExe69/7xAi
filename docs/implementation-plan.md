@@ -14,14 +14,14 @@
 
 - Repository `RahulExe69/7xAi`; work on `feat/android-embedded-omniroute`; no changes to `main`.
 - Android minimum API 29; production ABI `arm64-v8a`; x86_64 is permitted only for emulator test builds.
-- Production Node baseline `v24.22.3` LTS; `fogtape/nodejs-mobile v24.22.1-0` full archive is POC-only.
+- Production Node baseline `v24.22.3` LTS; `fogtape/nodejs-mobile v24.22.1-0` lite archive is POC-only; the full profile remains a fallback if the WASM SQLite path fails.
 - OmniRoute stable tag `v3.8.53`, commit `191dce8d534ceb56c28a08e71381284a9a87838f`.
 - Backend-only build uses `OMNIROUTE_BUILD_BACKEND_ONLY=1`; server runner for mobile is an in-process entrypoint, not the child-process standalone launcher.
 - Never execute a downloaded ELF from writable app storage; native libraries must be inside the APK ABI library area.
 - Node `node::Start()` is one-shot and runs in a dedicated `:gateway` process; stop, exit process, then restart fresh process.
 - Runtime must set `HOST=127.0.0.1`, `PORT=20128`, app-private `HOME`, Android `TMPDIR`, `DATA_DIR`, and compile cache before starting Node.
 - Mobile runtime must not assume `child_process.spawn/fork/execSync`, runtime npm installs, desktop keychain, desktop TPROXY or host-built native addons.
-- SQLite fallback is `node:sqlite`, then `sql.js`; skip runtime `npm install better-sqlite3` on mobile.
+- On lite runtime, skip runtime `npm install better-sqlite3` and prove the pure-WASM `sql.js` fallback. The full profile with `node:sqlite` is the fallback if sql.js cannot satisfy the tested workload.
 - API key and local gateway credential handling must be authenticated, encrypted and redacted; no secrets in assets, logs, crash reports or backups.
 - Do not use Android `dataSync` as a perpetual service category; validate `specialUse` / distribution rules and keep a visible-session fallback.
 - Never call the 24.22.1 POC runtime production-ready; no release APK without production Node 24.22.3 and real-device evidence.
@@ -48,7 +48,7 @@ The authoring environment has no Android SDK/NDK, Gradle, emulator or connected 
 
 1. Add a runtime manifest schema: artifact class (`poc-only` or `production-approved`), Node version, source repo/tag/commit, ABI, archive SHA-256, NDK version, API level, patch recipe commit and binary SHA-256.
 2. Add a unit test that rejects missing hash, wrong ABI, mismatched Node version, unknown artifact class and any POC artifact in release variants.
-3. Fetch `fogtape/nodejs-mobile v24.22.1-0` full archive over HTTPS; verify SHA-256 `d6fd9f610fe5d81fede8f0d400c5a62723247725a19831835f15abf4f0604250`. Extract only required ABI library and headers; never commit native binaries.
+3. Fetch `fogtape/nodejs-mobile v24.22.1-0` lite archive over HTTPS; verify SHA-256 `87ac319660b9dbff1c3a878d5dec2e15560a42f04d7660c8ddaf87c24627ac82`. Extract only the required ABI library and headers; never commit native binaries. The ARM64 lite library measured 66,270,352 bytes; full measured 114,350,992 bytes stripped.
 4. Implement the JNI bridge and load `libnode.so` from APK native libraries. Do not use downloaded executables.
 5. Start Node only once in a dedicated `:gateway` process. Set environment and working directory before Node initialization.
 6. Test `process.version`, mobile marker, `fs`, `crypto`, `fetch`, TLS, DNS, loopback HTTP, environment access, temp directory and graceful listener shutdown.
@@ -64,7 +64,7 @@ The authoring environment has no Android SDK/NDK, Gradle, emulator or connected 
 1. Clone stable OmniRoute tag `v3.8.53` at exact commit `191dce8d534ceb56c28a08e71381284a9a87838f`; verify source identity and lockfile before installing dependencies.
 2. Run the backend-only production build with `OMNIROUTE_BUILD_BACKEND_ONLY=1`. Assert all changed App Router pages are restored and `git status --porcelain` is clean after build, even when the build fails.
 3. Inspect the resulting server bundle, static assets, API route files, migrations, package imports and all native or dynamically imported modules.
-4. Add a mobile SQLite fallback patch: when `process.versions.mobile` is present, do not attempt runtime npm install via `child_process.execSync`; load `node:sqlite`, then `sql.js`.
+4. Add a mobile SQLite fallback patch: when `process.versions.mobile` is present, never attempt runtime npm install via `child_process.execSync`. Exercise `sql.js` under the lite profile; use `node:sqlite` only for the full-profile fallback.
 5. Audit `better-sqlite3`, `keytar`, `onnxruntime-node`, `sqlite-vec`, `wreq-js`, `sharp`, TPROXY, SWC and desktop helpers. Build an explicit mobile allowlist. If `wreq-js` is required by routing, build a compatible Android N-API addon or provide a tested fetch/Undici fallback.
 6. The Android runtime must not invoke `scripts/dev/run-standalone.mjs` unchanged because it spawns a child process. Test candidate argv `["node", "scripts/dev/run-next.mjs", "start"]` directly through `node::Start()`.
 7. Package only verified server bundle/runtime files, migrations and all required third-party license notices.
@@ -137,7 +137,7 @@ Measure real APK size, expanded app data, runtime extraction size, idle/active R
 - Node ABI / native addon compatibility, including Android 16 KB page size.
 - One-shot Node process lifecycle and clean server/database stop.
 - Android background restrictions, foreground service category and OEM kills.
-- Mobile SQLite fallback bypassing runtime package installation.
+- Lite-profile SQLite WASM fallback and its persistence/migration semantics.
 - Required transports / dynamic optional imports and WebSocket/SSE support.
 - Loopback exposure, local authentication, provider key persistence and backup behavior.
 - Runtime binary provenance, exact upstream pin and all third-party notices.

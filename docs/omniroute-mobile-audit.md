@@ -46,7 +46,7 @@ The published SQLite runtime documentation describes this fallback order:
 
 The lazy runtime installer invokes `execSync("npm install ... better-sqlite3")` before trying `node:sqlite`. Mobile Node documents process-spawning restrictions. Add an explicit mobile branch (for example, `process.versions.mobile`) that skips all npm/child-process installation and goes directly to `node:sqlite`, then `sql.js` if needed. Never attempt to install native modules at runtime on the handset.
 
-The full Node mobile package includes `node:sqlite`; its lite build omits SQLite/Web Storage. Therefore, the POC and production target must use the full feature profile unless the selected SQLite backend is demonstrably unnecessary.
+The full Node mobile package includes `node:sqlite`; the lite build omits SQLite/Web Storage. CI comparison measured ARM64 full `libnode.so` at 114,350,992 bytes stripped and lite at 66,270,352 bytes (already stripped), saving 48,080,640 bytes / approximately 42%. The lite profile is the selected POC candidate because OmniRoute has a `sql.js` WASM fallback; prove migrations, transactions and durable persistence with that backend. Keep full as fallback if semantics or performance are inadequate.
 
 Test migrations, read/write transactions, data persistence, close/reopen, low storage, interrupted writes and app process death. OmniRoute documents its default SQLite topology as single-writer; only one gateway instance may own the app database.
 

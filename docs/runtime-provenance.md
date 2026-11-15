@@ -11,10 +11,10 @@
 
 - Project: https://github.com/fogtape/nodejs-mobile
 - Tag: `v24.22.1-0`
-- Asset: `nodejs-mobile-android-24.22.1-0.zip` (full; do not use lite for OmniRoute because lite excludes `node:sqlite`)
-- Archive SHA-256: `d6fd9f610fe5d81fede8f0d400c5a62723247725a19831835f15abf4f0604250`
-- Class: `poc-only`
-- Rule: never package this artifact in a user alpha/release APK. It predates the Node 24.22.3 production security baseline.
+- Asset: `nodejs-mobile-android-lite-24.22.1-0.zip` (lite POC profile; the full profile remains fallback)
+- Archive SHA-256: `87ac319660b9dbff1c3a878d5dec2e15560a42f04d7660c8ddaf87c24627ac82`
+- Measured ARM64 `libnode.so`: 66,270,352 bytes (lite), versus 114,350,992 bytes (full, stripped).
+- Class: `poc-only`. Rule: never package either Node 24.22.1-0 profile in a user alpha/release APK. It predates the Node 24.22.3 production security baseline.
 
 ## OmniRoute stable source pin
 

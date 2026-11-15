@@ -24,7 +24,7 @@
 ## Runtime pins
 
 - **Production security baseline:** Node.js `v24.22.3` LTS, released 2026-11-11 as a security release.
-- **Android POC only:** `fogtape/nodejs-mobile` `v24.22.1-0` full Android archive, SHA-256 `d6fd9f610fe5d81fede8f0d400c5a62723247725a19831835f15abf4f0604250`. Never ship this older build.
+- **Android POC only:** `fogtape/nodejs-mobile` `v24.22.1-0` lite Android archive, SHA-256 `87ac319660b9dbff1c3a878d5dec2e15560a42f04d7660c8ddaf87c24627ac82`. The full profile is retained as a fallback comparison. Neither profile may ship; both predate the production security baseline.
 - Production requires a reviewed mobile patch stack rebased to Node `v24.22.3`, with hashes and native regression evidence. If unavailable, release remains blocked; do not downgrade the Node baseline.
 - **OmniRoute stable pin:** tag `v3.8.53`, commit `191dce8d534ceb56c28a08e71381284a9a87838f`. The `release/v3.8.54` branch is an unreleased development line and is not the stable production pin.
 
@@ -48,7 +48,7 @@ Node mobile does not provide a normal desktop process environment: Android has n
 
 ## Database and native dependencies
 
-OmniRoute has a SQLite fallback chain ending with Node `node:sqlite` and `sql.js`. Its runtime installer currently attempts `npm install better-sqlite3` through `child_process.execSync`; add a mobile-specific branch to skip that installation and use `node:sqlite` first, with `sql.js` fallback. Use the full Node mobile profile because the lite profile removes SQLite.
+OmniRoute has a SQLite fallback chain ending with Node `node:sqlite` and `sql.js`. Its runtime installer currently attempts `npm install better-sqlite3` through `child_process.execSync`; add a mobile-specific branch to skip that installation. The lite Node profile removes built-in `node:sqlite`, so the intended POC route is the pure-WASM `sql.js` fallback. This is a deliberate size trade-off, not yet a proven integration: migrations, transactions, persistence, close/reopen, and recovery must pass before lite is retained. If the WASM path fails or cannot provide required semantics, test the full profile.
 
 Create an explicit Android module allowlist. Do not package host-built `.node` or `.so` assets for Linux/macOS/Windows. Audit `better-sqlite3`, `keytar`, `onnxruntime-node`, `sqlite-vec`, `wreq-js`, `sharp`, TPROXY and all dynamic imports. A feature is either supported by an Android ABI-compatible build and verified, disabled with a visible reason, or replaced by a tested mobile-compatible implementation. Do not remove a transport or DB component blindly.
 
@@ -76,7 +76,7 @@ Do not use `dataSync` as a generic permanent-server foreground-service type: And
 
 ## Provisional device budgets (not measured)
 
-Android 10/API29 minimum test candidate; ARM64 only for production; 4 GB RAM minimum test candidate, 6–8 GB preferred; reserve at least 300 MB free storage. APK planning envelope is **not yet reliable**: the full multi-ABI Node archive is over 100 MB compressed, and only the ARM64 native library plus server bundle will be packaged. Measure the actual single-ABI APK and extracted data before setting a user-facing size promise.
+Android 10/API29 minimum test candidate; ARM64 only for production; 4 GB RAM minimum test candidate, 6–8 GB preferred; reserve at least 300 MB free storage. CI measured the POC ARM64 Node library: full profile `114,350,992` bytes after debug stripping; lite profile `66,270,352` bytes (already stripped), a saving of `48,080,640` bytes / approximately 42%. This is the Node library only, not the final APK or installed footprint. Final APK size remains unmeasured and must include the server bundle, app, `libc++_shared.so`, assets and notices.
 
 ## References
 
